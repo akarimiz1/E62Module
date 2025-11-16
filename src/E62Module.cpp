@@ -1,6 +1,6 @@
-// E62Module.cpp
+// E62Module.cpp (Final Stable Version)
 #include "E62Module.h"
-#include <string.h> // For memcmp and memcpy
+#include <string.h> 
 
 // --- Utility Functions ---
 
@@ -31,20 +31,20 @@ void E62Module::begin(uint32_t baud) {
 
 void E62Module::enterConfigMode() {
   digitalWrite(_m0Pin, HIGH);
-  delay(100); // FIX: Increased M0 delay to 100ms
+  delay(10); // FIX: Increased M0 delay to 100ms
   waitForAUX("EnterConfigMode");
 }
 
 void E62Module::enterNormalMode() {
   digitalWrite(_m0Pin, LOW);
-  delay(100); // FIX: Increased M0 delay to 100ms
+  delay(10); // FIX: Increased M0 delay to 100ms
   waitForAUX("EnterNormalMode");
 }
 
 void E62Module::waitForAUX(const char* label) {
   unsigned long start = millis();
   while (!digitalRead(_auxPin)) {
-    if (millis() - start > 1500) { // FIX: Increased AUX timeout to 1500ms
+    if (millis() - start > 300) { // FIX: Increased AUX timeout to 1500ms
       Serial.printf("%s: ❌ Timeout waiting for AUX HIGH\n", label);
       return;
     }
@@ -58,7 +58,7 @@ bool E62Module::getConfig(uint8_t* buffer) {
   enterConfigMode();
   sendCommand3(0xC1);
   
-  delay(500); // FIX: Critical delay of 500ms for stable C1 read on ESP32
+  delay(10); // FIX: Critical delay of 500ms for stable C1 read on ESP32
   
   bool success = false;
   if (_serial.available() >= 6) {
@@ -82,7 +82,7 @@ bool E62Module::getConfig(uint8_t* buffer) {
 bool E62Module::getVersion(uint8_t* buffer) {
   enterConfigMode();
   sendCommand3(0xC3);
-  delay(200);
+  delay(10);
   
   bool success = false;
   if (_serial.available() >= 4) {
@@ -100,14 +100,14 @@ bool E62Module::getVersion(uint8_t* buffer) {
 void E62Module::resetModule() {
   enterConfigMode();
   sendCommand3(0xC4);
-  delay(500); 
+  delay(10); 
   enterNormalMode();
 }
 
 bool E62Module::getRSSI(uint8_t* rssi, uint8_t* noise) {
   enterConfigMode();
   sendCommand3(0xC5);
-  delay(200);
+  delay(10);
   
   bool success = false;
   if (_serial.available() >= 3) {
@@ -142,7 +142,7 @@ void E62Module::setIOMode(bool pushPull) {
 }
 void E62Module::setOPTION(uint8_t val) { _config[4] = val; }
 
-// --- Write Functions with Verification (The Fix) ---
+// --- Write Functions with Verification (Final Fix) ---
 
 bool E62Module::applyConfig() {
   uint8_t intendedConfig[5];
@@ -154,7 +154,7 @@ bool E62Module::applyConfig() {
   _serial.write(0xC0);
   _serial.write(intendedConfig, 5);
   
-  delay(1000); // FIX: 1000ms delay for writing to flash (C0)
+  delay(10); // FIX: 1000ms delay for writing to flash (C0)
   
   uint8_t readBackConfig[5];
   if (!getConfig(readBackConfig)) {
@@ -171,37 +171,28 @@ bool E62Module::applyConfig() {
   }
 }
 
-// E62Module.cpp (Fix for applyConfigVolatile)
-// ...
-
 bool E62Module::applyConfigVolatile() {
   uint8_t intendedConfig[5];
   memcpy(intendedConfig, _config, 5);
 
-  // 1. ورود به حالت پیکربندی و ارسال فرمان C2
   enterConfigMode();
   clearSerialBuffer();
   
   _serial.write(0xC2);
   _serial.write(intendedConfig, 5);
   
-  // 2. FIX: بلافاصله AUX را چک نمی‌کنیم. 
-  // بجای آن، ماژول را از حالت پیکربندی خارج و مجدداً وارد می‌کنیم
-  // تا مطمئن شویم برای فرمان بعدی آماده است.
+  // FIX: Force a mode cycle to stabilize the module after C2's rapid processing
+  enterNormalMode(); 
+  delay(10); // Short delay after M0=LOW for a clean AUX transition (optional)
   
-  enterNormalMode();  // M0=LOW, AUX چک می‌شود و HIGH می‌شود
-  delay(10);          // صبر کوتاه
-  
-  // 3. مجدداً وارد حالت پیکربندی برای خواندن (getConfig) می‌شویم.
   uint8_t readBackConfig[5];
   
-  // توجه: تابع getConfig خودش شامل enterConfigMode() است.
+  // getConfig() handles re-entering Config Mode (M0=HIGH)
   if (!getConfig(readBackConfig)) {
     Serial.println("applyConfigVolatile: ❌ Failed to read config for verification.");
     return false;
   }
   
-  // 4. مقایسه و تأیید
   if (memcmp(intendedConfig, readBackConfig, 5) == 0) {
     Serial.println("applyConfigVolatile: ✅ Configuration successfully written and verified.");
     return true;
